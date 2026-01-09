@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0F172A" />
+  <title>Financial Filing Analyzer</title>
+  <!-- Simple text favicon -->
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='80'>Q</text></svg>">
+
+  <!-- Font: Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #0F172A;
+      color: #F8FAFC;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .glass {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(12px);
+      border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <!-- React & ReactDOM from CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Axios for API calls -->
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+
+  <!-- Main App (inline, no compilation needed) -->
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function MetricCard({ label, value, previousValue, currentPeriod, previousPeriod, format = 'currency' }) {
+      const formatValue = (val) => {
+        if (val === null || val === undefined) return 'N/A';
+        if (format === 'eps') return `$${val.toFixed(2)}`;
+        if (format === 'percent') return `${(val * 100).toFixed(1)}%`;
+        if (format === 'currency') {
+          if (Math.abs(val) >= 1000) return `$${(val / 1000).toFixed(2)}B`;
+          return `$${val.toFixed(2)}M`;
+        }
+        return val.toString();
+      };
+
+      const delta = value !== null && previousValue !== null ? value - previousValue : null;
+      const pctChange = delta !== null && previousValue !== 0
+        ? ((delta / Math.abs(previousValue)) * 100).toFixed(1)
+        : null;
+      const isPositive = delta !== null && delta > 0;
+      const deltaColor = isPositive ? 'text-emerald-400' : (delta < 0 ? 'text-rose-400' : 'text-slate-400');
+
+      return (
+        <div className="glass p-5 rounded-xl">
+          <div className="text-slate-400 text-sm font-medium uppercase tracking-wide">{label}</div>
+          <div className="text-3xl font-bold text-white mt-1">{formatValue(value)}</div>
+          <div className="text-xs text-slate-500 mt-1">{currentPeriod || 'Current Quarter'}</div>
+          {delta !== null && (
+            <div className={`text-sm mt-3 font-mono ${deltaColor}`}>
+              {isPositive ? '▲' : (delta < 0 ? '▼' : '—')} {isPositive ? '+' : ''}{formatValue(delta)}
+              {pctChange !== null && ` (${isPositive ? '+' : ''}${pctChange}%)`}
+              <span className="text-slate-500 text-xs ml-1">vs {previousPeriod || 'prior'}</span>
+            </div>
+          )}
+          {previousValue !== null && previousValue !== undefined && (
+            <div className="text-xs text-slate-500 mt-1">
+              Prior: {formatValue(previousValue)}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function CompanySelector({ companies, selectedTicker, onSelect, onModeToggle, inputMode }) {
+      return (
+        <div className="mb-6">
+          <div className="flex justify-between items-center mb-2">
+            <label className="text-slate-300 text-sm font-medium">Company</label>
+            <button
+              onClick={onModeToggle}
+              className="bg-sky-500/20 border border-sky-500/30 rounded px-2 py-1 text-xs text-sky-400 hover:bg-sky-500/30"
+              title={inputMode ? 'Switch to dropdown' : 'Type any ticker'}
+            >
+              {inputMode ? 'List' : 'Type'}
+            </button>
+          </div>
+          {inputMode ? (
+            <input
+              type="text"
+              className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded text-white placeholder-slate-500"
+              placeholder="Enter any ticker (e.g., TSLA, AMZN, NVDA)"
+              value={selectedTicker}
+              onChange={(e) => onSelect(e.target.value.toUpperCase())}
+              maxLength={10}
+            />
+          ) : (
+            <select
+              className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded text-white"
+              value={selectedTicker}
+              onChange={(e) => onSelect(e.target.value)}
+            >
+              <option value="">Select a company...</option>
+              {companies.map(c => (
+                <option key={c.ticker} value={c.ticker}>{c.ticker} - {c.name}</option>
+              ))}
+            </select>
+          )}
+          {inputMode && <div className="text-xs text-slate-500 mt-1">Works with any US public company ticker</div>}
+        </div>
+      );
+    }
+
+    function App() {
+      const [selectedTicker, setSelectedTicker] = useState('');
+      const [inputMode, setInputMode] = useState(false);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+      const [analysisData, setAnalysisData] = useState(null);
+      const [companies, setCompanies] = useState([]);
+      const [backendConnected, setBackendConnected] = useState(false);
+
+      // Filing options
+      const [filingType, setFilingType] = useState('10-Q');
+      const [selectedPeriod, setSelectedPeriod] = useState('');  // Empty = latest
+      const [availableFilings, setAvailableFilings] = useState({ filings_10q: [], filings_10k: [] });
+      const [loadingFilings, setLoadingFilings] = useState(false);
+
+      const API_BASE = 'http://localhost:8001';
+
+      useEffect(() => {
+        // Test backend connection first
+        axios.get(`${API_BASE}/api/health`)
+          .then(() => {
+            setBackendConnected(true);
+            // Load companies
+            return axios.get(`${API_BASE}/api/companies`);
+          })
+          .then(res => {
+            setCompanies(res.data.companies || []);
+            setError(null);
+          })
+          .catch(err => {
+            console.error('Error loading companies:', err);
+            setBackendConnected(false);
+            if (err.code === 'ERR_NETWORK' || err.message.includes('Network Error')) {
+              setError(`Cannot connect to backend at ${API_BASE}. Make sure the backend is running: ./run.sh`);
+            } else {
+              setError(`Backend error: ${err.response?.data?.detail || err.message}`);
+            }
+          });
+      }, []);
+
+      // Fetch available filings when ticker changes
+      useEffect(() => {
+        if (!selectedTicker || !backendConnected) return;
+
+        setLoadingFilings(true);
+        setSelectedPeriod('');  // Reset to latest
+
+        axios.get(`${API_BASE}/api/filings/${selectedTicker}`)
+          .then(res => {
+            setAvailableFilings({
+              filings_10q: res.data.filings_10q || [],
+              filings_10k: res.data.filings_10k || []
+            });
+          })
+          .catch(err => {
+            console.error('Error fetching filings:', err.response?.data || err.message);
+            setAvailableFilings({ filings_10q: [], filings_10k: [] });
+          })
+          .finally(() => setLoadingFilings(false));
+      }, [selectedTicker, backendConnected]);
+
+      const handleAnalyze = async () => {
+        if (!selectedTicker) {
+          setError('Please select a company');
+          return;
+        }
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await axios.post(`${API_BASE}/api/analyze`, {
+            ticker: selectedTicker,
+            filing_type: filingType,
+            period: selectedPeriod || null  // null = latest
+          });
+          setAnalysisData(res.data);
+        } catch (err) {
+          setError(err.response?.data?.detail || err.message || 'Analysis failed');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      // Get available periods based on filing type
+      const availablePeriods = filingType === '10-K'
+        ? availableFilings.filings_10k
+        : availableFilings.filings_10q;
+
+      return (
+        <div className="flex w-full h-screen bg-[#0F172A]">
+          {/* Sidebar */}
+          <div className="w-80 glass-panel p-6 flex flex-col">
+            <div className="flex items-center space-x-2 mb-8">
+              <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+              <h1 className="text-xl font-bold text-white">Financial Filing Analyzer</h1>
+            </div>
+
+            <div className="flex-1">
+              <CompanySelector
+                companies={companies}
+                selectedTicker={selectedTicker}
+                onSelect={setSelectedTicker}
+                onModeToggle={() => setInputMode(!inputMode)}
+                inputMode={inputMode}
+              />
+
+              {/* Filing Type Selector */}
+              <div className="mb-4">
+                <label className="block text-sm text-slate-400 mb-2">Report Type</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setFilingType('10-Q'); setSelectedPeriod(''); }}
+                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${filingType === '10-Q'
+                      ? 'bg-sky-500/20 border border-sky-500/50 text-sky-400'
+                      : 'bg-slate-700/50 border border-slate-600/30 text-slate-400 hover:bg-slate-700'
+                      }`}
+                  >
+                    10-Q (Quarterly)
+                  </button>
+                  <button
+                    onClick={() => { setFilingType('10-K'); setSelectedPeriod(''); }}
+                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${filingType === '10-K'
+                      ? 'bg-sky-500/20 border border-sky-500/50 text-sky-400'
+                      : 'bg-slate-700/50 border border-slate-600/30 text-slate-400 hover:bg-slate-700'
+                      }`}
+                  >
+                    10-K (Annual)
+                  </button>
+                </div>
+              </div>
+
+              {/* Period Selector */}
+              {selectedTicker && (
+                <div className="mb-4">
+                  <label className="block text-sm text-slate-400 mb-2">
+                    Period {loadingFilings && <span className="text-xs">(loading...)</span>}
+                  </label>
+                  <select
+                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                    value={selectedPeriod}
+                    onChange={(e) => setSelectedPeriod(e.target.value)}
+                    disabled={loadingFilings}
+                  >
+                    <option value="">Latest Available</option>
+                    {availablePeriods.map((f, i) => (
+                      <option key={f.accession || i} value={f.period}>
+                        {f.period} (filed {f.date})
+                      </option>
+                    ))}
+                  </select>
+                  {selectedPeriod && (
+                    <div className="text-xs text-amber-400 mt-1">
+                      Comparing {selectedPeriod} to previous one
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={handleAnalyze}
+                disabled={loading || !selectedTicker}
+                className="w-full py-3 bg-gradient-to-r from-sky-500 to-blue-600 text-white font-semibold rounded-lg hover:from-sky-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                {loading ? 'Analyzing...' : 'Analyze Company'}
+              </button>
+
+              {error && (
+                <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-sm">
+                  {error}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-auto p-4 bg-slate-900/80 rounded text-xs text-slate-400">
+              <span className={`block mb-2 ${backendConnected ? 'text-emerald-400' : 'text-red-400'}`}>
+                {backendConnected ? '● LIVE' : '● OFFLINE'}
+              </span>
+              {analysisData ? `Last: ${analysisData.latest_period}` : (backendConnected ? 'Ready' : 'Backend not connected')}
+            </div>
+          </div>
+
+          {/* Main Content */}
+          <div className="flex-1 flex flex-col p-8 overflow-auto">
+            {loading && (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="w-16 h-16 border-4 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-slate-400">Analyzing company filings...</p>
+                </div>
+              </div>
+            )}
+
+            {analysisData && !loading && (
+              <>
+                {/* Period Context Header */}
+                <div className="glass rounded-2xl p-6 mb-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h2 className="text-2xl font-bold text-white">{analysisData.ticker}</h2>
+                      <p className="text-slate-400 mt-1">
+                        {analysisData.filing_type === '10-K' ? '10-K Annual Report' : '10-Q Quarterly Report'} Analysis
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="flex items-center gap-4">
+                        <div className="text-center px-4 py-2 bg-sky-500/20 border border-sky-500/30 rounded-lg">
+                          <div className="text-xs text-sky-400 uppercase tracking-wide">Current Period</div>
+                          <div className="text-lg font-bold text-white">{analysisData.latest_period}</div>
+                        </div>
+                        <div className="text-slate-500">vs</div>
+                        <div className="text-center px-4 py-2 bg-slate-700/50 border border-slate-600/30 rounded-lg">
+                          <div className="text-xs text-slate-400 uppercase tracking-wide">Previous Period</div>
+                          <div className="text-lg font-bold text-slate-300">{analysisData.previous_period}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Financial Numbers (Renamed from Key Metrics) */}
+                <div className="grid grid-cols-4 gap-4 mb-6">
+                  <MetricCard
+                    label="Revenue"
+                    value={analysisData.current_snapshot.revenue}
+                    previousValue={analysisData.previous_snapshot.revenue}
+                    currentPeriod={analysisData.latest_period}
+                    previousPeriod={analysisData.previous_period}
+                    format="currency"
+                  />
+                  <MetricCard
+                    label="Gross Profit"
+                    value={analysisData.current_snapshot.gross_profit}
+                    previousValue={analysisData.previous_snapshot.gross_profit}
+                    currentPeriod={analysisData.latest_period}
+                    previousPeriod={analysisData.previous_period}
+                    format="currency"
+                  />
+                  <MetricCard
+                    label="Operating Income"
+                    value={analysisData.current_snapshot.operating_income}
+                    previousValue={analysisData.previous_snapshot.operating_income}
+                    currentPeriod={analysisData.latest_period}
+                    previousPeriod={analysisData.previous_period}
+                    format="currency"
+                  />
+                  <MetricCard
+                    label="Net Income"
+                    value={analysisData.current_snapshot.net_income}
+                    previousValue={analysisData.previous_snapshot.net_income}
+                    currentPeriod={analysisData.latest_period}
+                    previousPeriod={analysisData.previous_period}
+                    format="currency"
+                  />
+                </div>
+
+                {/* Profitability & Per-Share */}
+                <div className="grid grid-cols-4 gap-4 mb-8">
+                  <MetricCard
+                    label="EPS (Diluted)"
+                    value={analysisData.current_snapshot.eps}
+                    previousValue={analysisData.previous_snapshot.eps}
+                    currentPeriod={analysisData.latest_period}
+                    previousPeriod={analysisData.previous_period}
+                    format="eps"
+                  />
+                  <MetricCard
+                    label="EBITDA"
+                    value={analysisData.current_snapshot.ebitda}
+                    previousValue={analysisData.previous_snapshot.ebitda}
+                    currentPeriod={analysisData.latest_period}
+                    previousPeriod={analysisData.previous_period}
+                    format="currency"
+                  />
+                  <MetricCard
+                    label="Gross Margin"
+                    value={analysisData.current_snapshot.gross_margin}
+                    previousValue={analysisData.previous_snapshot.gross_margin}
+                    currentPeriod={analysisData.latest_period}
+                    previousPeriod={analysisData.previous_period}
+                    format="percent"
+                  />
+                  <MetricCard
+                    label="Net Margin"
+                    value={analysisData.current_snapshot.net_margin}
+                    previousValue={analysisData.previous_snapshot.net_margin}
+                    currentPeriod={analysisData.latest_period}
+                    previousPeriod={analysisData.previous_period}
+                    format="percent"
+                  />
+                </div>
+
+                {/* Stock Price & Ratios (Renamed from Market Data & Valuation) */}
+                {analysisData.market_data && analysisData.market_data.current_price && (
+                  <div className="glass rounded-2xl p-6 mb-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <h2 className="text-lg font-semibold">Stock Price & Ratios</h2>
+                      {analysisData.market_data.is_historical ? (
+                        <span className="text-xs text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded">
+                          Historical ({analysisData.market_data.price_date})
+                        </span>
+                      ) : (
+                        <span className="text-xs text-sky-400 bg-sky-400/10 px-2 py-1 rounded">
+                          Current ({analysisData.market_data.price_date || 'today'})
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-6">
+                      {/* Market Data */}
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Market Data</h3>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Stock Price</span>
+                            <span className="text-white font-semibold">${analysisData.market_data.current_price?.toFixed(2) || 'N/A'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Market Cap</span>
+                            <span className="text-white">{analysisData.market_data.market_cap ? `$${(analysisData.market_data.market_cap / 1000).toFixed(1)}B` : 'N/A'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">52-Week Range</span>
+                            <span className="text-white">
+                              ${analysisData.market_data.fifty_two_week_low?.toFixed(2) || '?'} - ${analysisData.market_data.fifty_two_week_high?.toFixed(2) || '?'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Beta</span>
+                            <span className="text-white">{analysisData.market_data.beta?.toFixed(2) || 'N/A'}</span>
+                          </div>
+                          {analysisData.market_data.dividend_yield && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Dividend Yield</span>
+                              <span className="text-white">{(analysisData.market_data.dividend_yield * 100).toFixed(2)}%</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Valuation Ratios */}
+                      {analysisData.valuation && (
+                        <div>
+                          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Valuation Ratios</h3>
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">P/E Ratio</span>
+                              <span className={`font-semibold ${analysisData.valuation.pe_ratio && analysisData.valuation.pe_ratio < 20 ? 'text-emerald-400' : analysisData.valuation.pe_ratio > 40 ? 'text-rose-400' : 'text-white'}`}>
+                                {analysisData.valuation.pe_ratio?.toFixed(1) || 'N/A'}x
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">P/S Ratio</span>
+                              <span className="text-white">{analysisData.valuation.ps_ratio?.toFixed(2) || 'N/A'}x</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">EV/EBITDA</span>
+                              <span className="text-white">{analysisData.valuation.ev_to_ebitda?.toFixed(1) || 'N/A'}x</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">EV/Revenue</span>
+                              <span className="text-white">{analysisData.valuation.ev_to_revenue?.toFixed(2) || 'N/A'}x</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Enterprise Value</span>
+                              <span className="text-white">{analysisData.valuation.enterprise_value ? `$${(analysisData.valuation.enterprise_value / 1000).toFixed(1)}B` : 'N/A'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="glass rounded-2xl p-6 mb-6">
+                  <h2 className="text-lg font-semibold mb-2">Quarter-over-Quarter Comparison</h2>
+                  <p className="text-slate-400 text-sm mb-4">
+                    Comparing <span className="text-sky-400 font-medium">{analysisData.latest_period}</span> to <span className="text-slate-300 font-medium">{analysisData.previous_period}</span>
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-700">
+                          <th className="text-left py-3 px-4 text-slate-400">Metric</th>
+                          <th className="text-right py-3 px-4 text-sky-400">{analysisData.latest_period}</th>
+                          <th className="text-right py-3 px-4 text-slate-400">{analysisData.previous_period}</th>
+                          <th className="text-right py-3 px-4 text-slate-400">Change</th>
+                          <th className="text-right py-3 px-4 text-slate-400">% Change</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analysisData.deltas.map((d, i) => {
+                          const fmt = (v) => {
+                            if (v === null) return 'N/A';
+                            if (d.metric_name.includes('Margin')) return `${(v * 100).toFixed(1)}%`;
+                            if (d.metric_name.includes('EPS')) return `$${v.toFixed(2)}`;
+                            if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(2)}B`;
+                            return `$${v.toFixed(2)}M`;
+                          };
+                          return (
+                            <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/50">
+                              <td className="py-3 px-4 font-medium">{d.metric_name}</td>
+                              <td className="py-3 px-4 text-right">{fmt(d.current_value)}</td>
+                              <td className="py-3 px-4 text-right">{fmt(d.previous_value)}</td>
+                              <td className="py-3 px-4 text-right">{d.delta !== null ? `${d.delta >= 0 ? '+' : ''}${fmt(d.delta)}` : 'N/A'}</td>
+                              <td className={`py-3 px-4 text-right ${d.pct_change !== null && d.pct_change > 0 ? 'text-emerald-400' : d.pct_change < 0 ? 'text-rose-400' : ''}`}>
+                                {d.pct_change !== null ? `${d.pct_change >= 0 ? '+' : ''}${d.pct_change.toFixed(1)}%` : 'N/A'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="glass rounded-2xl p-6">
+                  <h2 className="text-lg font-semibold mb-2">Source Text</h2>
+                  <p className="text-slate-400 text-sm mb-4">
+                    Text from the official SEC documents used to find these numbers
+                  </p>
+                  <div className="space-y-4">
+                    {analysisData.evidence.map((item, i) => {
+                      const isCurrentPeriod = item.period_end === analysisData.latest_period;
+                      return (
+                        <div key={i} className={`p-4 rounded-lg border ${isCurrentPeriod ? 'bg-sky-900/20 border-sky-500/30' : 'bg-slate-900/60 border-slate-800'}`}>
+                          <div className="flex justify-between items-center mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-sm font-semibold ${isCurrentPeriod ? 'text-sky-400' : 'text-slate-400'}`}>
+                                {isCurrentPeriod ? 'Current Period' : 'Previous Period'}
+                              </span>
+                              <span className={`text-xs px-2 py-0.5 rounded ${isCurrentPeriod ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-700 text-slate-400'}`}>
+                                {item.period_end}
+                              </span>
+                            </div>
+                            <span className="text-xs text-slate-500 font-mono">
+                              {item.ticker} • Section {item.chunk_index + 1}
+                            </span>
+                          </div>
+                          <p className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap">{item.text}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {!analysisData && !loading && (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center max-w-lg">
+                  <div className="mb-6 mx-auto">
+                    <div className="font-mono text-4xl font-bold tracking-tighter">
+                      <span className="text-emerald-400">[</span>
+                      <span className="text-white">10</span>
+                      <span className="text-sky-400">-Q</span>
+                      <span className="text-emerald-400">]</span>
+                    </div>
+                    <div className="text-xs text-slate-500 tracking-widest mt-1">FINANCIAL FILING ANALYZER</div>
+                  </div>
+                  <h2 className="text-2xl font-bold mb-4">Financial Filing Analyzer</h2>
+                  <p className="text-slate-400 mb-6">
+                    Analyze quarterly reports using SEC filings.
+                  </p>
+                  <div className="glass rounded-xl p-6 text-left mb-6">
+                    <h3 className="text-sm font-semibold text-sky-400 uppercase tracking-wide mb-3">How it works</h3>
+                    <div className="space-y-3 text-sm">
+                      <div className="flex gap-3">
+                        <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-white">1</div>
+                        <p className="text-slate-300">Select a company (like AAPL or TSLA).</p>
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-white">2</div>
+                        <p className="text-slate-300">The app downloads the latest 10-Q filing from the SEC.</p>
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs font-bold text-white">3</div>
+                        <p className="text-slate-300">It finds the main financial number for you.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+
+</html>

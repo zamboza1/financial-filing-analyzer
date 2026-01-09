@@ -1,0 +1,27 @@
+# Company metadata mapping
+# Format: ticker -> company_name, CIK
+
+companies:
+  AAPL:
+    name: "Apple Inc."
+    cik: "0000320193"
+  
+  MSFT:
+    name: "Microsoft Corporation"
+    cik: "0000789019"
+  
+  GOOGL:
+    name: "Alphabet Inc."
+    cik: "0001652044"
+  
+  NVDA:
+    name: "NVIDIA Corporation"
+    cik: "0001045810"
+  
+  AMD:
+    name: "Advanced Micro Devices, Inc."
+    cik: "0000002488"
+  
+  META:
+    name: "Meta Platforms, Inc."
+    cik: "0001326801"

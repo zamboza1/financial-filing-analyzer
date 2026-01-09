@@ -1,0 +1,44 @@
+[project]
+name = "sec-filing-analyzer"
+version = "0.1.0"
+description = "A tool that analyzes SEC 10-Q and 10-K filings to extract financial metrics and comparisons."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.5.0",
+    "requests>=2.31.0",
+    "pyyaml>=6.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+    "faiss-cpu>=1.7.4",
+    "sentence-transformers>=2.2.0",
+    "numpy>=1.24.0",
+    "python-dateutil>=2.8.0",
+    "yfinance>=0.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.10.0",
+    "mypy>=1.6.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+

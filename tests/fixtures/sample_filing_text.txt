@@ -1,0 +1,53 @@
+CONSOLIDATED STATEMENTS OF OPERATIONS
+(In millions, except per share amounts)
+
+Three Months Ended September 30, 2023
+
+Net sales:
+  Product revenue                                    $69,456
+  Services revenue                                     20,131
+Total net sales                                        89,587
+
+Cost of sales:
+  Cost of products                                     48,953
+  Cost of services                                      7,419
+Total cost of sales                                    56,372
+
+Gross profit                                           33,215
+Gross margin                                           37.1%
+
+Operating expenses:
+  Research and development                              7,313
+  Selling, general and administrative                   12,491
+Total operating expenses                              19,804
+
+Operating income                                       13,411
+Operating margin                                       15.0%
+
+Other income/(expense), net                              896
+
+Income before provision for income taxes              14,307
+
+Provision for income taxes                            (1,351)
+
+Net income                                            $22,956
+
+Earnings per share:
+  Basic                                                $1.47
+  Diluted                                              $1.46
+
+Weighted-average shares outstanding:
+  Basic                                               15,605
+  Diluted                                             15,705
+
+GUIDANCE AND OUTLOOK
+
+For the fiscal 2024 first quarter, the Company expects:
+- Revenue between $89.5 billion and $91.5 billion
+- Gross margin between 37% and 38%
+- Operating expenses between $19.5 billion and $20.0 billion
+
+The Company operates in the following segments: iPhone, Mac, iPad, Wearables, Home and Accessories, and Services.
+
+
+
